@@ -1,3 +1,9 @@
+## 1.5.1 (Unreleased)
+
+BUG FIXES
+
+* `googleworkspace_group_dynamic`: Update now inspects the `groups.patch` Operation and fails if it carries an error, and waits until every changed field (`display_name`, `description`, `query`) is reflected by the API before reporting success. Previously the Operation was discarded and the post-update poll only checked `display_name`, so a `query` change the API accepted but never applied was reported as "Modifications complete" while the live query stayed unchanged, producing the same plan diff on every run.
+
 ## 1.5.0 (October 02, 2026)
 
 MIGRATION
