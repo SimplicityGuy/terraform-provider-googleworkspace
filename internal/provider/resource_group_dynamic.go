@@ -390,28 +390,41 @@ func resourceGroupDynamicUpdate(ctx context.Context, d *schema.ResourceData, met
 	}
 
 	if len(updateMask) > 0 {
-		_, err = groupsService.Patch(d.Id(), group).UpdateMask(strings.Join(updateMask, ",")).Do()
+		// groups.patch returns a long-running Operation. A patch the API accepts
+		// but does not apply (or applies with an error) still returns err == nil,
+		// so the Operation itself has to be inspected and the result verified.
+		operation, err := groupsService.Patch(d.Id(), group).UpdateMask(strings.Join(updateMask, ",")).Do()
 		if err != nil {
 			return diag.FromErr(fmt.Errorf("failed to update dynamic group: %v", err))
+		}
+		if operation != nil && operation.Error != nil {
+			return diag.Errorf("failed to update dynamic group: operation returned error %d: %s",
+				operation.Error.Code, operation.Error.Message)
+		}
+		if operation != nil && !operation.Done {
+			log.Printf("[DEBUG] Dynamic Group %s update operation %q still running; verifying live state", d.Id(), operation.Name)
 		}
 
 		log.Printf("[DEBUG] Finished updating Dynamic Group with name: %s", d.Id())
 
-		// Wait for the update to be reflected
+		// Confirm every changed field is reflected live before returning. The
+		// message must contain "timed out while waiting" so retryTimeDuration
+		// keeps polling instead of giving up on the first mismatch.
+		want := dynamicGroupExpectations(d)
 		err = retryTimeDuration(ctx, d.Timeout(schema.TimeoutUpdate), func() error {
 			updatedGroup, retryErr := groupsService.Get(d.Id()).Do()
 			if retryErr != nil {
 				return fmt.Errorf("error checking group status: %v", retryErr)
 			}
-			// Verify at least one field was updated
-			if d.HasChange("display_name") && updatedGroup.DisplayName != d.Get("display_name").(string) {
-				return fmt.Errorf("update not reflected yet")
+			if pending := dynamicGroupPendingFields(updatedGroup, want); len(pending) > 0 {
+				return fmt.Errorf("timed out while waiting for dynamic group update to be reflected: %s not yet updated",
+					strings.Join(pending, ", "))
 			}
 			return nil
 		})
 
 		if err != nil {
-			log.Printf("[WARN] Update may not be fully reflected: %v", err)
+			return diag.FromErr(fmt.Errorf("dynamic group %s update was accepted but not reflected by the API: %v", d.Id(), err))
 		}
 	}
 
@@ -446,6 +459,57 @@ func resourceGroupDynamicDelete(ctx context.Context, d *schema.ResourceData, met
 }
 
 // validateDynamicGroupQuery validates that a dynamic group query has the required structure
+// dynamicGroupExpected holds the values an Update must see reflected by the
+// API before it reports success. A nil pointer means the field did not change
+// and is not checked.
+type dynamicGroupExpected struct {
+	DisplayName *string
+	Description *string
+	Query       *string
+}
+
+func dynamicGroupExpectations(d *schema.ResourceData) dynamicGroupExpected {
+	var want dynamicGroupExpected
+	if d.HasChange("display_name") {
+		v := d.Get("display_name").(string)
+		want.DisplayName = &v
+	}
+	if d.HasChange("description") {
+		v := d.Get("description").(string)
+		want.Description = &v
+	}
+	if d.HasChange("query") {
+		v := d.Get("query").(string)
+		want.Query = &v
+	}
+	return want
+}
+
+// dynamicGroupPendingFields returns the names of expected fields the live group
+// does not yet reflect. Empty means the update has fully landed.
+func dynamicGroupPendingFields(live *cloudidentity.Group, want dynamicGroupExpected) []string {
+	var pending []string
+	if live == nil {
+		return []string{"group"}
+	}
+	if want.DisplayName != nil && live.DisplayName != *want.DisplayName {
+		pending = append(pending, "display_name")
+	}
+	if want.Description != nil && live.Description != *want.Description {
+		pending = append(pending, "description")
+	}
+	if want.Query != nil {
+		liveQuery := ""
+		if live.DynamicGroupMetadata != nil && len(live.DynamicGroupMetadata.Queries) > 0 {
+			liveQuery = live.DynamicGroupMetadata.Queries[0].Query
+		}
+		if liveQuery != *want.Query {
+			pending = append(pending, "query")
+		}
+	}
+	return pending
+}
+
 func validateDynamicGroupQuery(query string) diag.Diagnostics {
 	var diags diag.Diagnostics
 
