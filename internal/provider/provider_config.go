@@ -14,6 +14,7 @@ import (
 	directory "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/chromepolicy/v1"
 	"google.golang.org/api/cloudidentity/v1"
+	cloudidentitybeta "google.golang.org/api/cloudidentity/v1beta1"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/groupssettings/v1"
 	"google.golang.org/api/impersonate"
@@ -186,6 +187,30 @@ func (c *apiClient) NewCloudIdentityService() (*cloudidentity.Service, diag.Diag
 	}
 
 	return cloudIdentityService, diags
+}
+
+// NewCloudIdentityBetaService returns the v1beta1 surface of Cloud Identity.
+// It exists for the one operation v1 cannot do: changing a dynamic group's
+// membership query. v1 groups.patch only accepts display_name, description
+// and labels in updateMask; v1beta1 also accepts dynamic_group_metadata.
+func (c *apiClient) NewCloudIdentityBetaService() (*cloudidentitybeta.Service, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	log.Printf("[INFO] Instantiating Google Cloud Identity (v1beta1) service")
+
+	svc, err := cloudidentitybeta.NewService(context.Background(), option.WithHTTPClient(c.client))
+	if err != nil {
+		return nil, diag.FromErr(err)
+	}
+	if svc == nil {
+		diags = append(diags, diag.Diagnostic{
+			Severity: diag.Error,
+			Summary:  "Cloud Identity v1beta1 Service could not be created.",
+		})
+		return nil, diags
+	}
+
+	return svc, diags
 }
 
 func (c *apiClient) NewDirectoryService() (*directory.Service, diag.Diagnostics) {
