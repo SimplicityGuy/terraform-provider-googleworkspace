@@ -1,4 +1,4 @@
-## 1.5.2 (Unreleased)
+## 1.5.2 (October 15, 2026)
 
 BUG FIXES
 
