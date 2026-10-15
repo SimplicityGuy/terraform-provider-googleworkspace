@@ -1,3 +1,9 @@
+## 1.5.2 (Unreleased)
+
+BUG FIXES
+
+* `googleworkspace_group_dynamic`: query changes now go through Cloud Identity **v1beta1** `groups.patch` with `updateMask=dynamic_group_metadata`. The v1 surface only honors `display_name`, `description` and `labels`; it accepted a `dynamicGroupMetadata` mask and returned a successful Operation while leaving the live query unchanged, which is why 1.5.1 reported "update was accepted but not reflected by the API" instead of succeeding. `display_name`, `description` and label changes still use v1.
+
 ## 1.5.1 (October 14, 2026)
 
 BUG FIXES

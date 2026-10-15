@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
 	"google.golang.org/api/cloudidentity/v1"
+	cloudidentitybeta "google.golang.org/api/cloudidentity/v1beta1"
 )
 
 func resourceGroupDynamic() *schema.Resource {
@@ -340,6 +341,11 @@ func resourceGroupDynamicUpdate(ctx context.Context, d *schema.ResourceData, met
 		updateMask = append(updateMask, "description")
 	}
 
+	// The membership query cannot be changed through v1: groups.patch there
+	// only honors display_name, description and labels, and silently ignores a
+	// dynamicGroupMetadata mask while still returning a successful Operation.
+	// v1beta1 groups.patch accepts `dynamic_group_metadata`, so the query goes
+	// through a separate call on that surface.
 	if d.HasChange("query") {
 		query := d.Get("query").(string)
 
@@ -349,15 +355,30 @@ func resourceGroupDynamicUpdate(ctx context.Context, d *schema.ResourceData, met
 			return validationDiags
 		}
 
-		group.DynamicGroupMetadata = &cloudidentity.DynamicGroupMetadata{
-			Queries: []*cloudidentity.DynamicGroupQuery{
-				{
-					ResourceType: "USER",
-					Query:        query,
+		betaService, betaDiags := client.NewCloudIdentityBetaService()
+		if betaDiags.HasError() {
+			return betaDiags
+		}
+
+		betaGroup := &cloudidentitybeta.Group{
+			DynamicGroupMetadata: &cloudidentitybeta.DynamicGroupMetadata{
+				Queries: []*cloudidentitybeta.DynamicGroupQuery{
+					{
+						ResourceType: "USER",
+						Query:        query,
+					},
 				},
 			},
 		}
-		updateMask = append(updateMask, "dynamicGroupMetadata.queries")
+		operation, err := betaService.Groups.Patch(d.Id(), betaGroup).UpdateMask("dynamic_group_metadata").Do()
+		if err != nil {
+			return diag.FromErr(fmt.Errorf("failed to update dynamic group query: %v", err))
+		}
+		if operation != nil && operation.Error != nil {
+			return diag.Errorf("failed to update dynamic group query: operation returned error %d: %s",
+				operation.Error.Code, operation.Error.Message)
+		}
+		log.Printf("[DEBUG] Submitted query update for Dynamic Group %s via v1beta1", d.Id())
 	}
 
 	// Handle label changes (security_group, locked, and custom labels)
@@ -404,7 +425,9 @@ func resourceGroupDynamicUpdate(ctx context.Context, d *schema.ResourceData, met
 		if operation != nil && !operation.Done {
 			log.Printf("[DEBUG] Dynamic Group %s update operation %q still running; verifying live state", d.Id(), operation.Name)
 		}
+	}
 
+	if len(updateMask) > 0 || d.HasChange("query") {
 		log.Printf("[DEBUG] Finished updating Dynamic Group with name: %s", d.Id())
 
 		// Confirm every changed field is reflected live before returning. The
