@@ -1,3 +1,9 @@
+## Unreleased
+
+BUG FIXES
+
+* `googleworkspace_group_member`: create and update no longer time out on a member that was inserted successfully. Right after a write, the post-write reads can reach replicas that disagree, so the answers alternate between a 404 and a 200, or between two etags. Each such answer reset the consistency count, so the check could fail to see four consistent reads in a row before the timeout, and Terraform tainted a member that exists. An etag that was already seen now counts as a consistent read, and a 404 after the member has been read once no longer discards the consistent reads already counted. A new etag still resets the count, and a 404 before the first successful read still restarts the wait.
+
 ## 1.5.2 (October 15, 2026)
 
 BUG FIXES

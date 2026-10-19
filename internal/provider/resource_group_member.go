@@ -174,12 +174,12 @@ func resourceGroupMemberCreate(ctx context.Context, d *schema.ResourceData, meta
 		if googleapi.IsNotModified(retryErr) {
 			cc.currConsistent += 1
 		} else if isNotFound(retryErr) {
-			// groupmember was not found yet therefore setting currConsistent back to null value
-			cc.currConsistent = 0
+			// groupmember was not found yet, or this read reached a replica that has not caught up
+			cc.handleNotFound()
 		} else if retryErr != nil {
 			return fmt.Errorf("unexpected error during retries of %s: %s", cc.resourceType, retryErr)
 		} else {
-			cc.handleNewEtag(newMember.Etag)
+			cc.handleEtag(newMember.Etag)
 		}
 
 		return fmt.Errorf("timed out while waiting for %s to be inserted", cc.resourceType)
@@ -299,7 +299,7 @@ func resourceGroupMemberUpdate(ctx context.Context, d *schema.ResourceData, meta
 			} else if retryErr != nil {
 				return fmt.Errorf("unexpected error during retries of %s: %s", cc.resourceType, retryErr)
 			} else {
-				cc.handleNewEtag(newMember.Etag)
+				cc.handleEtag(newMember.Etag)
 			}
 
 			return fmt.Errorf("timed out while waiting for %s to be updated", cc.resourceType)

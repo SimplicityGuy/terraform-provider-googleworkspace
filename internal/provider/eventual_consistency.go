@@ -12,6 +12,8 @@ type consistencyCheck struct {
 	etagChanges    int
 	lastEtag       string
 	resourceType   string
+	// seenEtags holds every etag returned by a successful read, see handleEtag
+	seenEtags map[string]bool
 	// timeout should be set to the timeout of the action
 	timeout time.Duration
 }
@@ -36,4 +38,34 @@ func (cc *consistencyCheck) handleNewEtag(etag string) {
 	cc.currConsistent = 0
 	cc.lastEtag = etag
 	cc.etagChanges += 1
+}
+
+// handleEtag records the etag of a successful read. A new etag is handled as
+// a change (see handleNewEtag). An etag that was already seen is not a change:
+// right after a write, reads can reach replicas that are at different points,
+// so the answers can alternate between two etags. Count such a read as
+// consistent instead of starting again, otherwise the check can fail to reach
+// consistency for a resource that already exists.
+func (cc *consistencyCheck) handleEtag(etag string) {
+	if cc.seenEtags[etag] {
+		cc.currConsistent += 1
+		cc.lastEtag = etag
+		return
+	}
+
+	if cc.seenEtags == nil {
+		cc.seenEtags = make(map[string]bool)
+	}
+	cc.seenEtags[etag] = true
+	cc.handleNewEtag(etag)
+}
+
+// handleNotFound records a read that returned 404. Before any successful read,
+// the resource is not visible yet, so we start again. After a successful read,
+// the 404 comes from a replica that has not caught up; it does not count as
+// consistent, but it does not discard the consistent reads already counted.
+func (cc *consistencyCheck) handleNotFound() {
+	if cc.etagChanges == 0 {
+		cc.currConsistent = 0
+	}
 }
