@@ -1,4 +1,4 @@
-## Unreleased
+## 1.5.3 (October 23, 2026)
 
 SECURITY:
 
