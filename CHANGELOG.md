@@ -1,3 +1,9 @@
+## Unreleased
+
+SECURITY:
+
+* Require Go 1.27.3 to reject compromised eMudhra/emSign certificate keys (GO-2026-6809). Rebuild and release provider binaries to apply this protection.
+
 ## 1.5.2 (October 15, 2026)
 
 BUG FIXES
