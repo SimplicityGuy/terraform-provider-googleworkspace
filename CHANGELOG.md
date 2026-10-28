@@ -1,3 +1,9 @@
+## Unreleased
+
+BUG FIXES
+
+* `googleworkspace_gmail_send_as_alias`: the per-user Gmail client now authenticates the same way as the provider. It copied only `credentials` and `oauth_scopes` and dropped `access_token` and `service_account`, so with keyless domain-wide delegation (`access_token` + `service_account` + `impersonated_user_email`, no key file) it fell back to application default credentials without the mailbox owner as subject, and every create, read, update, delete and import failed, typically with `googleapi: Error 403: Request had insufficient authentication scopes`. With `access_token` but no `service_account`, the Gmail client now returns the existing "service_account is required" error instead of silently using application default credentials.
+
 ## 1.5.3 (October 23, 2026)
 
 SECURITY:

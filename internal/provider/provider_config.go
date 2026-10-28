@@ -145,6 +145,18 @@ func (c *apiClient) SetupClient(ctx context.Context, creds *googleoauth.Credenti
 	return diags
 }
 
+// impersonatedClient returns an unauthenticated copy of the provider
+// configuration that acts as userEmail. The whole struct is copied, so the copy
+// authenticates the same way the provider does (access_token with
+// service_account, credentials, or application default credentials) and only
+// the subject differs. loadAndValidate must be called on it before use.
+func (c *apiClient) impersonatedClient(userEmail string) *apiClient {
+	newClient := *c
+	newClient.client = nil
+	newClient.ImpersonatedUserEmail = userEmail
+	return &newClient
+}
+
 func (c *apiClient) NewChromePolicyService() (*chromepolicy.Service, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -242,13 +254,7 @@ func (c *apiClient) NewGmailService(ctx context.Context, userId string) (*gmail.
 	// the send-as-alias resource requires the oauth token impersonate the user
 	// the alias is being created for.
 	log.Printf("[INFO] Creating Google Admin Gmail client that impersonates %q", userId)
-	newClient := &apiClient{
-		Credentials:           c.Credentials,
-		ClientScopes:          c.ClientScopes,
-		Customer:              c.Customer,
-		UserAgent:             c.UserAgent,
-		ImpersonatedUserEmail: userId,
-	}
+	newClient := c.impersonatedClient(userId)
 	diags = newClient.loadAndValidate(ctx)
 	if diags.HasError() {
 		return nil, diags
